@@ -1,0 +1,22 @@
+# Entorno virtual
+.venv/
+
+# Variables de entorno (contiene credenciales)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

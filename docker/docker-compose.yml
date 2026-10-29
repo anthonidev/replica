@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: clinicsay-replica-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clinicsay
+      POSTGRES_PASSWORD: clinicsay
+      POSTGRES_DB: clinicsay
+    ports:
+      - "5432:5432"
+    volumes:
+      - clinicsay_replica_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinicsay -d clinicsay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  clinicsay_replica_data:
