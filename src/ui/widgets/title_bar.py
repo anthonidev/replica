@@ -1,5 +1,5 @@
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -43,7 +43,7 @@ class EnvOption(Static):
     def __init__(self, env_name: str, is_current: bool):
         color = ENV_COLORS.get(env_name, "#8F93A2")
         short = ENV_SHORT.get(env_name, env_name)
-        check = " *" if is_current else "  "
+        check = "  ●" if is_current else "   "
         super().__init__(f"  [{color}]{short}[/{color}]  {env_name}{check}")
         self.env_name = env_name
         if is_current:
@@ -57,13 +57,16 @@ class EnvSelectDialog(ModalScreen[str]):
     DEFAULT_CSS = """
     EnvSelectDialog { align: center middle; }
     EnvSelectDialog #env-dialog-container {
-        width: 45; height: auto;
-        background: #1A1C25; border: round #89DDFF 40%; padding: 2 3;
+        width: 42; height: auto;
+        background: #13151F; border: round #89DDFF 50%; padding: 2 3;
     }
-    EnvSelectDialog #env-dialog-title { margin-bottom: 1; color: #8F93A2; }
+    EnvSelectDialog #env-dialog-title {
+        height: 1; margin-bottom: 1; color: #CDD6F4; text-style: bold;
+    }
+    EnvSelectDialog #env-dialog-options { height: auto; margin-bottom: 1; }
     EnvSelectDialog #btn-env-cancel {
         width: 100%; margin-top: 1;
-        background: transparent; color: #4B526D; border: none;
+        background: transparent; color: #6C7086; border: none;
     }
     EnvSelectDialog #btn-env-cancel:hover { color: #FF5370; }
     """
@@ -71,7 +74,7 @@ class EnvSelectDialog(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         current = get_environment()
         with Vertical(id="env-dialog-container"):
-            yield Static("[bold #89DDFF]Seleccionar entorno[/bold #89DDFF]", id="env-dialog-title")
+            yield Static("Seleccionar entorno", id="env-dialog-title")
             with Vertical(id="env-dialog-options"):
                 for env in ENVIRONMENTS:
                     yield EnvOption(env, is_current=(env == current))
@@ -94,31 +97,38 @@ class TitleBar(Widget):
     DEFAULT_CSS = """
     TitleBar {
         dock: top; height: 3; width: 100%;
-        background: #090B10; border-bottom: solid #1A1C25; layout: horizontal;
+        background: #0D0F18; border-bottom: solid #1A1D2E;
+        layout: horizontal;
     }
-    TitleBar #title-text {
-        width: 1fr; height: 3; content-align: center middle; color: #8F93A2;
+    TitleBar #title-left {
+        width: auto; height: 3; padding: 0 2;
+        content-align: left middle; color: #8F93A2;
+    }
+    TitleBar #title-spacer { width: 1fr; height: 3; }
+    TitleBar #env-hint {
+        width: auto; height: 3; padding: 0 2;
+        content-align: right middle; color: #45475A;
     }
     TitleBar #env-badge {
-        width: 20; height: 3; content-align: center middle; padding: 0 2;
+        width: auto; height: 3; padding: 0 2;
+        content-align: right middle;
     }
     """
 
     def compose(self) -> ComposeResult:
         yield Static(
-            "[bold #89DDFF]Clinicsay[/bold #89DDFF][#4B526D] Replica[/#4B526D]",
-            id="title-text",
+            "[bold #89DDFF]Clinicsay[/bold #89DDFF] [#4B526D]Replica[/#4B526D]",
+            id="title-left",
         )
+        yield Static("", id="title-spacer")
+        yield Static("[dim]e → entorno[/dim]", id="env-hint")
         yield Static("", id="env-badge")
 
     def on_mount(self) -> None:
         self._update_badge()
 
     def on_env_selected(self, env_name: str) -> None:
-        if not env_name:
-            return
-        current = get_environment()
-        if env_name == current:
+        if not env_name or env_name == get_environment():
             return
         set_environment(env_name)
         self._update_badge()
@@ -128,4 +138,6 @@ class TitleBar(Widget):
         current = get_environment()
         color = ENV_COLORS.get(current, "#8F93A2")
         short = ENV_SHORT.get(current, current)
-        self.query_one("#env-badge", Static).update(f"[bold {color}]{short}[/bold {color}]")
+        self.query_one("#env-badge", Static).update(
+            f"[bold {color}]● {short}[/bold {color}]"
+        )

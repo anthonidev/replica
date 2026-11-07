@@ -313,6 +313,11 @@ def _reset_sequences(src_url: str, dst_urls: list[str], log_fn) -> None:
 
 # ─── seleccion de clinicas (modo parcial) ────────────────────────────────────
 
+def get_clinics_from_origin(src_url: str) -> list[dict]:
+    """Lista clinicas disponibles en el origen ordenadas por nombre (API publica)."""
+    return _get_clinics_from_origin(src_url)
+
+
 def _get_clinics_from_origin(src_url: str) -> list[dict]:
     """Lista clinicas disponibles en el origen ordenadas por nombre."""
     conn = _connect(src_url)
@@ -538,7 +543,7 @@ def _copy_root_tables(
 
 # ─── funcion principal ────────────────────────────────────────────────────────
 
-def clone_environment(progress=None):
+def clone_environment(progress=None, params: dict | None = None):
     """Clona un ambiente remoto (PRD/STG/INT) a las BDs locales.
 
     Ofrece dos modos:
@@ -553,6 +558,11 @@ def clone_environment(progress=None):
               · set_tables_total(total: int)
               · advance_table(name: str, size_bytes: int)
             Si es None, los reportes se omiten silenciosamente.
+        params: dict opcional con valores pre-seleccionados desde la UI
+            inline (omite los select/confirm interactivos). Claves:
+              · env: "STAGING" | "INTEGRATION" | "PRODUCTION"
+              · mode: "full" | "partial"
+              · clinic_ids: list[str]  (solo cuando mode="partial")
     """
     from ui import print_header, info, success, error, warning, step, select, confirm
     from config.settings import get_config
@@ -586,13 +596,22 @@ def clone_environment(progress=None):
         error("No hay URLs remotas en .config.yaml (DATABASES).")
         return
 
-    opciones = [f"{s} — {n}" for s, n, _ in disponibles]
-    eleccion = select("Selecciona el ambiente ORIGEN:", opciones)
-    if not eleccion:
-        return
-
-    idx = opciones.index(eleccion)
-    _, env_name, src_url = disponibles[idx]
+    # ── Resolucion de origen ─────────────────────────────────────────────────
+    if params and params.get("env"):
+        # Valor pre-seleccionado desde la UI inline
+        target_env = params["env"]
+        match = next(((s, n, u) for s, n, u in disponibles if n == target_env), None)
+        if not match:
+            error(f"Ambiente '{target_env}' no disponible o sin URL configurada.")
+            return
+        _, env_name, src_url = match
+    else:
+        opciones = [f"{s} — {n}" for s, n, _ in disponibles]
+        eleccion = select("Selecciona el ambiente ORIGEN:", opciones)
+        if not eleccion:
+            return
+        idx = opciones.index(eleccion)
+        _, env_name, src_url = disponibles[idx]
 
     local_url  = databases.get("DATABASE_URL")
     backup_url = databases.get("DATABASE_BACKUP")
@@ -615,44 +634,58 @@ def clone_environment(progress=None):
     destinos_label = "LOCAL + BACKUP" if backup_url else "LOCAL"
 
     # ── Seleccion de modo ────────────────────────────────────────────────────
-    modo = select(
-        "Selecciona el modo de clonacion:",
-        [
-            "Completo — copia toda la BD",
-            "Parcial  — selecciona clinicas especificas",
-        ],
-    )
-    if not modo:
-        info("Cancelado.")
-        return
-
-    modo_parcial = modo.startswith("Parcial")
+    if params and params.get("mode"):
+        modo_parcial = params["mode"] == "partial"
+    else:
+        modo = select(
+            "Selecciona el modo de clonacion:",
+            [
+                "Completo — copia toda la BD",
+                "Parcial  — selecciona clinicas especificas",
+            ],
+        )
+        if not modo:
+            info("Cancelado.")
+            return
+        modo_parcial = modo.startswith("Parcial")
 
     # ── Seleccion de clinicas (solo modo parcial) ────────────────────────────
     clinicas_seleccionadas: list[dict] = []
     if modo_parcial:
-        step("Conectando al origen para listar clinicas...")
-        clinicas_seleccionadas = _select_clinics(src_url)
-        if not clinicas_seleccionadas:
-            info("No se seleccionaron clinicas. Cancelado.")
-            return
+        if params and params.get("clinic_ids"):
+            # IDs ya seleccionados en la UI inline — resolver nombres desde origen
+            step("Conectando al origen para verificar clinicas seleccionadas...")
+            todas = _get_clinics_from_origin(src_url)
+            ids_set = set(str(cid) for cid in params["clinic_ids"])
+            clinicas_seleccionadas = [c for c in todas if str(c["id"]) in ids_set]
+            if not clinicas_seleccionadas:
+                error("Ninguna de las clínicas seleccionadas existe en el origen.")
+                return
+        else:
+            step("Conectando al origen para listar clinicas...")
+            clinicas_seleccionadas = _select_clinics(src_url)
+            if not clinicas_seleccionadas:
+                info("No se seleccionaron clinicas. Cancelado.")
+                return
         info(f"Clinicas seleccionadas ({len(clinicas_seleccionadas)}):")
         for c in clinicas_seleccionadas:
             info(f"  · {c['name']}  [{c['org']}]")
 
     # ── Confirmacion ─────────────────────────────────────────────────────────
-    if modo_parcial:
-        nombres = ", ".join(c["name"] for c in clinicas_seleccionadas)
-        confirmar_msg = (
-            f"¿Clonar {env_name} → {destinos_label} "
-            f"(parcial: {nombres})? Se borraran los datos actuales."
-        )
-    else:
-        confirmar_msg = f"¿Clonar {env_name} → {destinos_label}? Se borraran los datos actuales."
+    # Con params (UI inline) se salta el confirm — el usuario ya presionó Ejecutar.
+    if not params:
+        if modo_parcial:
+            nombres = ", ".join(c["name"] for c in clinicas_seleccionadas)
+            confirmar_msg = (
+                f"¿Clonar {env_name} → {destinos_label} "
+                f"(parcial: {nombres})? Se borraran los datos actuales."
+            )
+        else:
+            confirmar_msg = f"¿Clonar {env_name} → {destinos_label}? Se borraran los datos actuales."
 
-    if not confirm(confirmar_msg):
-        info("Cancelado.")
-        return
+        if not confirm(confirmar_msg):
+            info("Cancelado.")
+            return
 
     # workers: hasta 8 tablas simultaneas (cap subido desde 6 para CPUs grandes)
     workers = min(max((os.cpu_count() or 4) - 2, 4), 8)

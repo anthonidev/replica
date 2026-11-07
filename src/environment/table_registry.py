@@ -415,6 +415,15 @@ TABLE_REGISTRY: list[TableSpec] = [
               filter_sql="workflow_id IN "
                          "(SELECT id FROM workflow WHERE clinic_id IN {clinic_ids})"),
 
+    TableSpec("workflow_run",             TableGroup.CLINIC_DIRECT),
+
+    TableSpec("workflow_run_step",
+              TableGroup.VIA_JOIN,
+              filter_sql="workflow_run_id IN "
+                         "(SELECT id FROM workflow_run WHERE clinic_id IN {clinic_ids})"),
+
+    TableSpec("workflow_event_receipt",   TableGroup.SKIP),
+
     TableSpec("support_message",
               TableGroup.VIA_JOIN,
               filter_sql="conversation_id IN "

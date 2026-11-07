@@ -1,39 +1,28 @@
 Screen {
-    layout: horizontal;
-    background: #0F111A;
+    background: #0D0F18;
+    layout: vertical;
+}
+
+ContentArea {
+    height: 1fr;
 }
 
 Footer {
     dock: bottom;
-    background: #090B10;
-    color: #4B526D;
+    background: #0D0F18;
+    color: #45475A;
 }
 
 FooterKey {
-    background: #090B10;
-    color: #4B526D;
+    background: #0D0F18;
+    color: #45475A;
 }
 
-Sidebar {
-    width: 28;
-    dock: left;
-    background: #090B10;
-}
-
-ContentArea {
-    width: 1fr;
-    background: #0F111A;
-}
-
-LogPanel {
-    width: 55;
-    background: #0F111A;
-}
-
-LogPanel.-hidden {
-    display: none;
+FooterKey .footer-key--key {
+    color: #89DDFF;
+    background: #0D0F18;
 }
 
 ModalScreen {
-    background: #0F111A 70%;
+    background: #0D0F18 70%;
 }

@@ -16,36 +16,36 @@ load_config()
 
 from textual.app import App, ComposeResult
 from textual.theme import Theme as TextualTheme
-from textual.widgets import Footer
 
 from config.settings import get_environment
-from ui.widgets.sidebar import Sidebar
 from ui.widgets.log_panel import LogPanel
 from ui.widgets.content_area import ContentArea
-from ui.widgets.title_bar import TitleBar, ENV_COLORS
-from ui.widgets.resizable import ResizableHorizontal
+from ui.widgets.title_bar import ENV_COLORS
 
 
-THEME_DARK = TextualTheme(
-    name="replica-dark",
+THEME = TextualTheme(
+    name="replica",
     primary="#89DDFF",
     secondary="#C792EA",
     accent="#82AAFF",
     warning="#FFCB6B",
     error="#FF5370",
     success="#C3E88D",
-    background="#0F111A",
-    surface="#090B10",
-    panel="#1A1C25",
+    background="#0D0F18",
+    surface="#13151F",
+    panel="#1A1D2E",
     dark=True,
     variables={
-        "accent-muted": "#00e8c6",
+        "text": "#CDD6F4",
+        "text-muted": "#6C7086",
+        "text-disabled": "#45475A",
+        "border-color": "#313244",
     },
 )
 
 
 class ReplicaApp(App):
-    """App standalone para clonar ambientes y restaurar desde backup."""
+    """App para clonar ambientes y restaurar desde backup."""
 
     TITLE = "Clinicsay Replica"
     CSS_PATH = "app.tcss"
@@ -54,20 +54,14 @@ class ReplicaApp(App):
         ("e", "change_env", "Entorno"),
     ]
 
-    RESTART_SENTINEL = object()
-
     def __init__(self):
         super().__init__()
-        self.register_theme(THEME_DARK)
-        self.theme = "replica-dark"
+        self.register_theme(THEME)
+        self.theme = "replica"
 
     def compose(self) -> ComposeResult:
-        yield TitleBar()
-        yield Sidebar()
-        with ResizableHorizontal(id="main-panels"):
-            yield ContentArea()
-            yield LogPanel()
-        yield Footer()
+        yield ContentArea()
+        yield LogPanel()
 
     def on_mount(self) -> None:
         log_panel = self.query_one(LogPanel)
@@ -76,27 +70,9 @@ class ReplicaApp(App):
         from ui.console import set_gui_mode
         set_gui_mode(log_widget, self)
 
-        log_panel.log_text(
-            "[bold #89DDFF]CLINICSAY[/bold #89DDFF] [dim]Replica[/dim]"
-        )
-        log_panel.log_text("[dim]" + "─" * 40 + "[/dim]")
-        log_panel.log_text(
-            "[dim]Selecciona Clonar Ambiente o Restaurar Backup.[/dim]\n"
-        )
-
-    # ── Navegacion ────────────────────────────────────────────
-
-    def on_sidebar_view_selected(self, event: Sidebar.ViewSelected) -> None:
-        self.query_one(ContentArea).show_view(event.view_id)
-
-    # ── Entorno ───────────────────────────────────────────────
-
-    def on_title_bar_environment_changed(self, event: TitleBar.EnvironmentChanged) -> None:
-        color = ENV_COLORS.get(event.env_name, "#8F93A2")
-        log_panel = self.query_one(LogPanel)
-        log_panel.log_text(
-            f"[bold {color}]Entorno: {event.env_name}[/bold {color}]"
-        )
+        log_panel.log_text("[bold]CLINICSAY[/bold] [dim]Replica[/dim]")
+        log_panel.log_text("[dim]─────────────────────────────────[/dim]")
+        log_panel.log_text(f"[dim]Entorno activo: {get_environment()}[/dim]\n")
 
     # ── Acciones ──────────────────────────────────────────────
 
@@ -108,16 +84,16 @@ class ReplicaApp(App):
         handler = handlers.get(event.action_id)
         if handler:
             self.query_one(LogPanel).mark_execution_start()
-            self.run_worker(handler, thread=True)
+            self.run_worker(lambda: handler(event.params), thread=True)
 
-    def _do_clone_environment(self):
+    def _do_clone_environment(self, params: dict):
         from ui import error
         from ui.widgets.progress_modal import OperationProgressModal
 
         modal = OperationProgressModal("Clonando Ambiente", target_app=self)
         try:
             from environment.clone_environment import clone_environment
-            clone_environment(progress=modal)
+            clone_environment(progress=modal, params=params)
         except Exception as e:
             error(f"{e}")
             import traceback
@@ -126,7 +102,7 @@ class ReplicaApp(App):
             if modal._started:
                 self.call_from_thread(modal.dismiss)
 
-    def _do_restore_backup(self):
+    def _do_restore_backup(self, params: dict):
         from ui import error
         try:
             from environment.restore_from_backup import restore_from_backup
@@ -143,13 +119,14 @@ class ReplicaApp(App):
         self.push_screen(EnvSelectDialog(), self._on_env_selected)
 
     def _on_env_selected(self, env_name: str) -> None:
-        if not env_name:
+        if not env_name or env_name == get_environment():
             return
-        current = get_environment()
-        if env_name == current:
-            return
-        title_bar = self.query_one(TitleBar)
-        title_bar.on_env_selected(env_name)
+        from config.settings import set_environment
+        set_environment(env_name)
+        color = ENV_COLORS.get(env_name, "#8F93A2")
+        self.query_one(LogPanel).log_text(
+            f"[bold {color}]Entorno: {env_name}[/bold {color}]"
+        )
 
 
 if __name__ == "__main__":

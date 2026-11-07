@@ -2,67 +2,102 @@ import threading
 
 from rich.text import Text
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import RichLog, Static, Button
+from textual.geometry import Offset
 from textual.widget import Widget
+from textual.widgets import RichLog, Static
+
+
+class _ResizeHandle(Widget, can_focus=False):
+    """Barra superior arrastrable para redimensionar el LogPanel."""
+
+    DEFAULT_CSS = """
+    _ResizeHandle {
+        height: 1;
+        width: 100%;
+        background: #0D0F18;
+        border-top: solid #1A1D2E;
+    }
+    _ResizeHandle:hover {
+        border-top: solid #45475A;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._drag_start_y: int | None = None
+        self._drag_start_height: int | None = None
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        event.stop()
+        self._drag_start_y = event.screen_y
+        self._drag_start_height = self.app.query_one(LogPanel).styles.height.value
+        self.capture_mouse()
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        if self._drag_start_y is None:
+            return
+        event.stop()
+        delta = self._drag_start_y - event.screen_y
+        new_h = max(4, int(self._drag_start_height + delta))
+        self.app.query_one(LogPanel).styles.height = new_h
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        if self._drag_start_y is None:
+            return
+        event.stop()
+        self._drag_start_y = None
+        self._drag_start_height = None
+        self.release_mouse()
 
 
 class LogPanel(Widget):
-    """Panel de logs estilo terminal con copiado al clipboard."""
+    """Panel de logs redimensionable."""
 
     DEFAULT_CSS = """
     LogPanel {
-        background: #0F111A;
-    }
-
-    LogPanel #log-header-bar {
-        layout: horizontal;
-        height: 3;
-        background: #090B10;
-        padding: 0 1;
-    }
-
-    LogPanel #log-title {
-        width: 1fr;
-        content-align: left middle;
-        padding: 0 1;
-        color: #4B526D;
-        text-style: bold;
-    }
-
-    LogPanel .log-btn {
-        min-width: 3;
-        height: 3;
-        margin: 0 0 0 1;
-        background: transparent;
-        color: #4B526D;
-        border: none;
-    }
-
-    LogPanel .log-btn:hover {
-        color: #89DDFF;
-        background: #89DDFF 10%;
-    }
-
-    LogPanel #btn-clear:hover {
-        color: #FF5370;
-        background: #FF5370 10%;
+        height: 10;
+        background: #0D0F18;
+        layout: vertical;
     }
 
     LogPanel #log-output {
         height: 1fr;
-        background: #0F111A;
+        background: #0D0F18;
         padding: 0 1;
         scrollbar-size: 1 1;
     }
 
-    LogPanel #log-status {
+    LogPanel #log-action-bar {
         height: 1;
-        background: #090B10;
-        padding: 0 2;
-        color: #4B526D;
-        content-align: right middle;
+        background: #0D0F18;
+        padding: 0 1;
+    }
+
+    LogPanel #log-status {
+        width: 1fr;
+        height: 1;
+        content-align: left middle;
+        color: #45475A;
+    }
+
+    LogPanel .log-btn {
+        width: auto;
+        height: 1;
+        background: transparent;
+        color: #45475A;
+        padding: 0 1;
+        content-align: center middle;
+    }
+
+    LogPanel .log-btn:hover {
+        color: #89DDFF;
+    }
+
+    LogPanel #btn-clear:hover {
+        color: #FF5370;
     }
     """
 
@@ -73,39 +108,34 @@ class LogPanel(Widget):
         self._lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
-        with Vertical():
-            with Horizontal(id="log-header-bar"):
-                yield Static("\u2630 Terminal", id="log-title")
-                yield Button("Copiar todo", id="btn-copy-all", classes="log-btn")
-                yield Button("Copiar ultimo", id="btn-copy-last", classes="log-btn")
-                yield Button("Limpiar", id="btn-clear", classes="log-btn")
-            yield RichLog(
-                id="log-output",
-                highlight=True,
-                markup=True,
-                wrap=True,
-                auto_scroll=True,
-            )
+        yield _ResizeHandle()
+        yield RichLog(
+            id="log-output",
+            highlight=True,
+            markup=True,
+            wrap=True,
+            auto_scroll=True,
+        )
+        with Horizontal(id="log-action-bar"):
             yield Static("", id="log-status")
+            yield Static("copiar", id="btn-copy-all", classes="log-btn")
+            yield Static("limpiar", id="btn-clear", classes="log-btn")
 
     @property
     def rich_log(self) -> RichLog:
         return self.query_one("#log-output", RichLog)
 
     def log_text(self, markup: str) -> None:
-        """Escribe texto con markup al log y al buffer."""
         text = Text.from_markup(markup)
         self.rich_log.write(text)
         with self._lock:
             self._text_buffer.append(text.plain)
 
     def append_to_buffer(self, plain_text: str) -> None:
-        """Agrega texto plano al buffer."""
         with self._lock:
             self._text_buffer.append(plain_text)
 
     def mark_execution_start(self) -> None:
-        """Marca el inicio de una nueva ejecucion."""
         with self._lock:
             self._last_exec_start = len(self._text_buffer)
 
@@ -113,66 +143,43 @@ class LogPanel(Widget):
         with self._lock:
             return "\n".join(self._text_buffer)
 
-    def _get_last_execution_text(self) -> str:
-        with self._lock:
-            return "\n".join(self._text_buffer[self._last_exec_start:])
-
     def _copy(self, text: str) -> None:
-        """Copia texto al clipboard."""
         if not text.strip():
             self._update_status("Nada que copiar")
             return
-        import subprocess
-        import platform
-
-        # Textual OSC 52 — funciona en Windows Terminal, iTerm2, etc.
+        import subprocess, platform
         try:
             self.app.copy_to_clipboard(text)
         except Exception:
             pass
-
-        # Fallback nativo por OS
         try:
             system = platform.system()
             if system == "Windows":
-                # clip.exe en Windows necesita UTF-16LE
-                process = subprocess.Popen(
-                    "clip", stdin=subprocess.PIPE, shell=True,
-                )
-                process.communicate(text.encode("utf-16-le"))
+                p = subprocess.Popen("clip", stdin=subprocess.PIPE, shell=True)
+                p.communicate(text.encode("utf-16-le"))
             elif system == "Darwin":
-                process = subprocess.Popen(
-                    ["pbcopy"], stdin=subprocess.PIPE,
-                )
-                process.communicate(text.encode("utf-8"))
+                p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                p.communicate(text.encode("utf-8"))
             else:
-                process = subprocess.Popen(
-                    ["xclip", "-selection", "clipboard"],
-                    stdin=subprocess.PIPE,
-                )
-                process.communicate(text.encode("utf-8"))
+                p = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
+                p.communicate(text.encode("utf-8"))
         except Exception:
             pass
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-clear":
+    def on_click(self, event: events.Click) -> None:
+        widget_id = event.widget.id if event.widget else None
+        if widget_id == "btn-clear":
+            event.stop()
             self.rich_log.clear()
             with self._lock:
                 self._text_buffer.clear()
                 self._last_exec_start = 0
-            self._update_status("Terminal limpiada")
-
-        elif event.button.id == "btn-copy-all":
+            self._update_status("Limpiado")
+        elif widget_id == "btn-copy-all":
+            event.stop()
             text = self._get_all_text()
             self._copy(text)
-            lines = len(text.splitlines())
-            self._update_status(f"Copiado: {lines} lineas")
-
-        elif event.button.id == "btn-copy-last":
-            text = self._get_last_execution_text()
-            self._copy(text)
-            lines = len(text.splitlines())
-            self._update_status(f"Copiado ultima ejecucion: {lines} lineas")
+            self._update_status(f"Copiado ({len(text.splitlines())} líneas)")
 
     def _update_status(self, msg: str) -> None:
         try:

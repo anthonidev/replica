@@ -152,10 +152,33 @@ def clear():
     pass
 
 
+def print_banner(subtitle: str = None):
+    pass
+
+
 def print_header(text: str, style: str = "header"):
     _gui_write(Rule(style="magenta"))
     _gui_write_markup(f"[{style}]{text}[/{style}]")
     _gui_write(Rule(style="magenta"))
+
+
+def print_operation_header(title: str):
+    print_header(title)
+    try:
+        from config.settings import get_environment
+        info(f"Entorno: {get_environment()}")
+    except Exception:
+        pass
+
+
+def print_preview(data: dict, title: str = "Datos a aplicar"):
+    print_key_value(data, title=title)
+
+
+def print_summary(message: str, data: dict | None = None, title: str = "Resumen"):
+    success(message)
+    if data:
+        print_key_value(data, title=title)
 
 
 def print_subheader(text: str):
@@ -163,8 +186,20 @@ def print_subheader(text: str):
     _gui_write(Rule(style="dim"))
 
 
+def print_menu(title: str, options: List[Dict[str, str]]):
+    pass
+
+
+def print_menu_option(key: str, label: str):
+    pass
+
+
 def print_separator(style: str = "dim"):
     _gui_write(Rule(style=style))
+
+
+def print_rule(text: str = "", style: str = "cyan"):
+    _gui_write(Rule(text, style=style))
 
 
 def print_key_value(data: Dict[str, Any], title: str = None):
@@ -175,6 +210,60 @@ def print_key_value(data: Dict[str, Any], title: str = None):
         if value is None or (isinstance(value, str) and not value.strip()):
             value = "[dim]-[/dim]"
         _gui_write_markup(f"  [cyan]{key}:[/cyan] {value}")
+
+
+def print_table(
+    title: str,
+    columns: List[str],
+    rows: List[List[str]],
+    show_header: bool = True,
+):
+    table = Table(title=title, show_header=show_header, header_style="bold cyan")
+    for col in columns:
+        table.add_column(col)
+    for row in rows:
+        table.add_row(*row)
+    _gui_write(table)
+
+
+def print_tree(title: str, items: Dict[str, Any], guide_style: str = "cyan"):
+    from rich.tree import Tree as RichTree
+    tree = RichTree(f"[bold]{title}[/bold]", guide_style=guide_style)
+
+    def add_items(parent, data):
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, (dict, list)):
+                    branch = parent.add(f"[cyan]{key}[/cyan]")
+                    add_items(branch, value)
+                else:
+                    display_value = value if value else "[dim]-[/dim]"
+                    parent.add(f"[cyan]{key}:[/cyan] {display_value}")
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                if isinstance(item, dict):
+                    branch = parent.add(f"[yellow]Item {i + 1}[/yellow]")
+                    add_items(branch, item)
+                else:
+                    parent.add(str(item))
+
+    add_items(tree, items)
+    _gui_write(tree)
+
+
+def print_panel(
+    content: str,
+    title: str = None,
+    style: str = "cyan",
+    expand: bool = False,
+):
+    _gui_write(Panel(
+        content,
+        title=title,
+        border_style=style,
+        expand=expand,
+        padding=(1, 2),
+    ))
 
 
 def info(message: str):
